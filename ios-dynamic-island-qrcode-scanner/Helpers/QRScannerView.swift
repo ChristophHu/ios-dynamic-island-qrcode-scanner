@@ -6,6 +6,34 @@
 //
 
 import SwiftUI
+import AVFoundation
+
+fileprivate struct CameraProperties {
+    var session: AVCaptureSession = .init()
+    var output: AVCaptureMetadataOutput = .init()
+    var scannedCode: String?
+    var permissionState: Permission?
+    
+    enum Permission: String {
+        case idle = "Not Determined"
+        case approved = "Access Granted"
+        case denied = "Access Denied"
+    }
+    
+    static func checkAndAskCameraPermission() async -> Permission? {
+        switch AVCaptureDevice.authorizationStatus(for: .video) {
+            case .authorized: return Permission.approved
+            case .notDetermined:
+                if await AVCaptureDevice.requestAccess(for: .video) {
+                    return Permission.approved
+                } else {
+                    return Permission.denied
+                }
+            case .denied, .restricted: return Permission.denied
+            default: return nil
+        }
+    }
+}
 
 extension View {
     @ViewBuilder
@@ -57,16 +85,20 @@ fileprivate struct QRScannerView: View {
     @State private var isInitialized: Bool = false
     @State private var showContent: Bool = false
     @State private var isExpanding: Bool = false
+    @State private var camera: CameraProperties = .init()
+    @Environment(\.openURL) private var openURL
+    
     var body: some View {
         // Button("Close", action: onClose)
         GeometryReader {
             let size = $0.size
             let safeArea = $0.safeAreaInsets
             
+            // Dynamic Island
             let haveDynamicIsland: Bool = safeArea.top > 59
             let dynamicIslandWidth: CGFloat = 120
             let dynamicIslandHeight: CGFloat = 36
-            let topOffset: CGFloat = (11 + max((safeArea.top - 59), 0))
+            let topOffset: CGFloat = haveDynamicIsland ? (11 + max((safeArea.top - 59), 0)) : (isExpanding ? (nonDynamicIslandHaveSpacing ? safeArea.top : -20) : -50)
 
             let expandedWidth: CGFloat = size.width - 30
             let expandedHeight: CGFloat = expandedWidth
@@ -74,26 +106,6 @@ fileprivate struct QRScannerView: View {
             ZStack(alignment: .top) {
                 Rectangle()
                     .fill(.ultraThinMaterial)
-                    .overlay {
-                        GeometryReader {
-                            let cameraSize = $0.size
-                            
-                            ScannerView(cameraSize)
-                        }
-                        .overlay(alignment: .bottom) {
-                            Text("Scanning for QR Code...")
-                                .font(.caption2)
-                                .foregroundStyle(.white.secondary)
-                                .lineLimit(1)
-                                .fixedSize()
-                                .offset(x: 15)
-                        }
-                        .padding(80)
-                        .compositingGroup()
-                        .blur(radius: isExpanding ? 0 : 20)
-                        .opacity(isExpanding ? 1 : 0)
-                        .geometryGroup()
-                    }
                     .contentShape(.rect)
                     .opacity(isExpanding ? 1 : 0)
                     .onTapGesture {
@@ -102,6 +114,28 @@ fileprivate struct QRScannerView: View {
                 
                 if showContent {
                     ConcentricRectangle(corners: .concentric(minimum: .fixed(30)), isUniform: true)
+                        .fill(.black)
+                        .overlay {
+                            GeometryReader {
+                                let cameraSize = $0.size
+                                
+                                ScannerView(cameraSize)
+                            }
+                            .overlay(alignment: .bottom) {
+                                Text("Scanning for QR Code...")
+                                    .font(.caption2)
+                                    .foregroundStyle(.white.secondary)
+                                    .lineLimit(1)
+                                    .fixedSize()
+                                    .offset(x: 15)
+                            }
+                            .padding(80)
+                            .compositingGroup()
+                            .blur(radius: isExpanding ? 0 : 20)
+                            .opacity(isExpanding ? 1 : 0)
+                            .geometryGroup()
+                            offset(y: nonDynamicIslandHaveSpacing || haveDynamicIsland ? 0 : 10)
+                        }
                         .frame(
                             width: isExpanding ? expandedWidth : dynamicIslandWidth,
                             height: isExpanding ? expandedHeight : dynamicIslandHeight
@@ -130,8 +164,10 @@ fileprivate struct QRScannerView: View {
                 showContent = true
                 try? await Task.sleep(for: .seconds(0.05))
                 toggle(true)
+                camera.permissionState = await CameraProperties.checkAndAskCameraPermission()
             }
         }
+        .statusBarHidden()
     }
     
     @ViewBuilder
@@ -139,6 +175,30 @@ fileprivate struct QRScannerView: View {
         let shape = RoundedRectangle(cornerRadius: size.width * 0.05, style: .continuous)
         
         ZStack {
+            if let permissionState = camera.permissionState {
+                if permissionState == .approved {
+                    
+                }
+                if permissionState == .denied {
+                    VStack(spacing: 4) {
+                        Image(systemName: "camera.viewfinder")
+                            .font(.system(size: size.width * 0.15))
+                            .foregroundStyle(.white)
+                        Text("Permission denied")
+                            .font(.caption)
+                            .foregroundStyle(.red)
+                        /*if let settingsURL = URL(string: UIApplication.openSettingsURLString) {
+                            Button("Go to Settings") {
+                                openURL(settingsURL)
+                            }
+                            .font(.caption)
+                            .foregroundStyle(.white)
+                            .underline()
+                        }*/
+                    }
+                    .fixedSize()
+                }
+            }
             shape
                 .stroke(.white, lineWidth: 2)
         }
@@ -150,6 +210,21 @@ fileprivate struct QRScannerView: View {
             isExpanding = status
         }
     }
+    
+    var nonDynamicIslandHaveSpacing: Bool {
+        return false
+    }
+}
+
+fileprivate struct CameraLayerView: UIViewRepresentable {
+    func makeUIView(context: Context) -> UIView {
+        let view = UIView(frame: .init(.origin: .zero, size: size))
+        view.backgroundColor = .clear
+    }
+    func updateUIView(_ uiView: UIViewType, context: Context) {
+        
+    }
+
 }
 
 #Preview {
