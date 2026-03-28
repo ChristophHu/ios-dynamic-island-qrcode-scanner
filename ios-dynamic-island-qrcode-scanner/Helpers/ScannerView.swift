@@ -1,8 +1,8 @@
 //
-//  QRScannerView.swift
+//  ScannerView.swift
 //  ios-dynamic-island-qrcode-scanner
 //
-//  Created by Christoph Huschenhöfer on 26.03.26.
+//  Created by Christoph Huschenhöfer on 28.03.26.
 //
 
 import SwiftUI
@@ -37,13 +37,13 @@ fileprivate struct CameraProperties {
 
 extension View {
     @ViewBuilder
-    func qrScanner(isScanning: Binding<Bool>, onScan: @escaping (String) -> Void) -> some View {
+    func scanner(isScanning: Binding<Bool>, onScan: @escaping (String) -> Void) -> some View {
         self
-            .modifier(QRScannerViewModifier(isScanning: isScanning, onScan: onScan))
+            .modifier(ScannerViewModifier(isScanning: isScanning, onScan: onScan))
     }
 }
 
-fileprivate struct QRScannerViewModifier: ViewModifier {
+fileprivate struct ScannerViewModifier: ViewModifier {
     @Binding var isScanning: Bool
     var onScan: (String) -> Void
     
@@ -134,7 +134,7 @@ fileprivate struct QRScannerView: View {
                             .blur(radius: isExpanding ? 0 : 20)
                             .opacity(isExpanding ? 1 : 0)
                             .geometryGroup()
-                            offset(y: nonDynamicIslandHaveSpacing || haveDynamicIsland ? 0 : 10)
+                            .offset(y: nonDynamicIslandHaveSpacing || haveDynamicIsland ? 0 : 10)
                         }
                         .frame(
                             width: isExpanding ? expandedWidth : dynamicIslandWidth,
@@ -187,14 +187,14 @@ fileprivate struct QRScannerView: View {
                         Text("Permission denied")
                             .font(.caption)
                             .foregroundStyle(.red)
-                        /*if let settingsURL = URL(string: UIApplication.openSettingsURLString) {
+                        if let settingsURL = URL(string: UIApplication.openSettingsURLString) {
                             Button("Go to Settings") {
                                 openURL(settingsURL)
                             }
                             .font(.caption)
                             .foregroundStyle(.white)
                             .underline()
-                        }*/
+                        }
                     }
                     .fixedSize()
                 }
