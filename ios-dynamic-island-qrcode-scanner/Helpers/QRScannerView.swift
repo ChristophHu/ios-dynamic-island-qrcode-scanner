@@ -166,6 +166,13 @@ fileprivate struct QRScannerView: View {
                 toggle(true)
                 camera.permissionState = await CameraProperties.checkAndAskCameraPermission()
             }
+            .onChange(of: camera.scannedCode) { oldValue, newValue in
+                if let newValue {
+                    onScan(newValue)
+                    toggle(false)
+                }
+            }
+                
         }
         .statusBarHidden()
     }
@@ -177,7 +184,10 @@ fileprivate struct QRScannerView: View {
         ZStack {
             if let permissionState = camera.permissionState {
                 if permissionState == .approved {
-                    
+                    CameraLayerView(size: size, camera: $camera)
+                        .overlay(alignment: .top) {
+                            ScannerAnimation(size.height)
+                        }
                 }
                 if permissionState == .denied {
                     VStack(spacing: 4) {
@@ -187,14 +197,14 @@ fileprivate struct QRScannerView: View {
                         Text("Permission denied")
                             .font(.caption)
                             .foregroundStyle(.red)
-                        /*if let settingsURL = URL(string: UIApplication.openSettingsURLString) {
+                        if let settingsURL = URL(string: UIApplication.openSettingsURLString) {
                             Button("Go to Settings") {
                                 openURL(settingsURL)
                             }
                             .font(.caption)
                             .foregroundStyle(.white)
                             .underline()
-                        }*/
+                        }
                     }
                     .fixedSize()
                 }
@@ -205,9 +215,29 @@ fileprivate struct QRScannerView: View {
         .frame(width: size.width, height: size.height)
     }
     
+    @ViewBuilder
+    private func ScannerAnimation(_ height: CGFloat) -> some View {
+        Rectangle()
+            .fill(Color.white)
+            .frame(height: 2.5)
+            .phaseAnimator([false, true], content: { content, isScanning in
+                content
+                    .shadow(color: .black.opacity(0.8), radius: 8, x: 0, y: isScanning ? 15 : -15)
+                    .offset(y: isScanning ? height : 0)
+            }, animation: {_ in
+                .easeInOut(duration: 0.85).delay(0.1)
+            })
+    }
+    
     private func toggle(_ status: Bool) {
         withAnimation(.interpolatingSpring(duration: 0.3, bounce: 0, initialVelocity: 0)) {
             isExpanding = status
+        }
+        
+        if !status {
+            DispatchQueue.global(qos: .background).asyncAfter(deadline: .now() + 0.3) {
+                camera.session.stopRunning()
+            }
         }
     }
     
@@ -217,14 +247,80 @@ fileprivate struct QRScannerView: View {
 }
 
 fileprivate struct CameraLayerView: UIViewRepresentable {
+    var size: CGSize
+    @Binding var camera: CameraProperties
+    
     func makeUIView(context: Context) -> UIView {
-        let view = UIView(frame: .init(.origin: .zero, size: size))
+        let view = UIView(frame: .init(origin: .zero, size: size))
         view.backgroundColor = .clear
+        
+        let layer = AVCaptureVideoPreviewLayer(session: camera.session)
+        layer.frame = .init(origin: .zero, size: size)
+        layer.videoGravity = .resizeAspectFill
+        layer.masksToBounds = true
+        view.layer.addSublayer(layer)
+        
+        return view
     }
-    func updateUIView(_ uiView: UIViewType, context: Context) {
+    
+    func updateUIView(_ uiView: UIView, context: Context) {
         
     }
+    
+    func makeCoordinator() -> Coordinator {
+        Coordinator(parent: self)
+    }
 
+    class Coordinator: NSObject, AVCaptureMetadataOutputObjectsDelegate {
+        var parent: CameraLayerView
+        init(parent: CameraLayerView) {
+            self.parent = parent
+            super.init()
+            Task {
+                setupCamera()
+            }
+        }
+        
+        func setupCamera() {
+            do {
+                let session = parent.camera.session
+                let output = parent.camera.output
+                
+                guard !session.isRunning else { return }
+                
+                guard let device = AVCaptureDevice.DiscoverySession(deviceTypes: [.builtInWideAngleCamera], mediaType: .video, position: .back).devices.first else {
+                    return
+                }
+                
+                let input = try AVCaptureDeviceInput(device: device)
+                guard session.canAddInput(input), session.canAddOutput(output) else {
+                    return
+                }
+                
+                session.beginConfiguration()
+                session.addInput(input)
+                session.addOutput(output)
+                output.metadataObjectTypes = [.qr]
+                output.setMetadataObjectsDelegate(self, queue: .main)
+                session.commitConfiguration()
+                
+                DispatchQueue.global(qos: .background).async {
+                    session.startRunning()
+                }
+            } catch {
+                print(error.localizedDescription)
+            }
+
+        }
+        
+        func metadataOutput(_ output: AVCaptureMetadataOutput, didOutput metadataObjects: [AVMetadataObject], from connection: AVCaptureConnection) {
+            if let object = metadataObjects.first as? AVMetadataMachineReadableCodeObject, let code = object.stringValue {
+                guard parent.camera.scannedCode == nil else { return }
+                parent.camera.scannedCode = code
+            }
+        }
+        
+    }
 }
 
 #Preview {
